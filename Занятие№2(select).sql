@@ -1,19 +1,20 @@
 ---------------------------------Запрос №1-----------------------------------------------------------------------------
-Все товары, в названии которых есть "urgent" или название начинается с "Animal" Таблицы: Warehouse.StockItems.---------
+/*Все товары, в названии которых есть "urgent" или название начинается с "Animal" Таблицы: Warehouse.StockItems. */
 select StockItemID,StockItemName 
 from Warehouse.StockItems
 where (StockItemName like '%urgent%') or (StockItemName like 'Animal%')
 
 
 ---------------------------------Запрос №2------------------------------------------------------------------------------
-Поставщиков (Suppliers), у которых не было сделано ни одного заказа (PurchaseOrders).-----------------------------------
-Сделать через JOIN, с подзапросом задание принято не будет.Таблицы: Purchasing.Suppliers, Purchasing.PurchaseOrders.----
+/*Поставщиков (Suppliers), у которых не было сделано ни одного заказа (PurchaseOrders).-----------------------------------
+Сделать через JOIN, с подзапросом задание принято не будет.Таблицы: Purchasing.Suppliers, Purchasing.PurchaseOrders.*/
 select b.SupplierID , SupplierName
-from Purchasing.Suppliers a left join Purchasing.PurchaseOrders b on a.SupplierID =b.SupplierID 
+from Purchasing.Suppliers a 
+left join Purchasing.PurchaseOrders b on a.SupplierID =b.SupplierID 
 where b.SupplierID is  null
 
 ---------------------------------Запрос №3------------------------------------------------------------------------------
-Заказы (Orders) с ценой товара более 100$ либо количеством единиц товара более 20 штук 
+/*Заказы (Orders) с ценой товара более 100$ либо количеством единиц товара более 20 штук 
 и присутствующей датой комплектации всего заказа (PickingCompletedWhen). 
 Вывести:
 * OrderID
@@ -25,13 +26,14 @@ where b.SupplierID is  null
 Добавьте вариант этого запроса с постраничной выборкой, пропустив первую 1000 и отобразив следующие 100 записей. 
 Сортировка должна быть по номеру квартала, трети года, дате заказа (везде по возрастанию). 
 Таблицы: Sales.Orders, Sales.OrderLines, Sales.Customers.
+*/
 select a.OrderID, CONVERT(char(10), a.OrderDate, 104) as Date, 
 datename(m,ExpectedDeliveryDate) as Month, DATEPART ( quarter , ExpectedDeliveryDate ) as Quarter,
 
   CASE
-    WHEN MONTH (ExpectedDeliveryDate)>=1 or MONTH (ExpectedDeliveryDate)<=4  THEN 1
-    WHEN MONTH (ExpectedDeliveryDate)>=5 or MONTH (ExpectedDeliveryDate)<=8 THEN 2
-	WHEN MONTH (ExpectedDeliveryDate)>=9 or MONTH (ExpectedDeliveryDate)<=12  THEN 3
+    WHEN MONTH (ExpectedDeliveryDate) < 5  THEN 1
+	WHEN MONTH (ExpectedDeliveryDate)>10   THEN 3
+	else  2
   END Thirdyear,
   c.CustomerName
 from Sales.Orders a  join Sales.OrderLines b on a.OrderID=b.OrderID   join  Sales.Customers c on a.CustomerID=c.CustomerID 
@@ -41,37 +43,42 @@ order by Quarter , Date
   fetch next 100 rows only  
 
 ---------------------------------Запрос №4---------------------------------------------
-Заказы поставщикам (Purchasing.Suppliers), которые были исполнены в январе 2014 года 
+/*Заказы поставщикам (Purchasing.Suppliers), которые были исполнены в январе 2014 года 
 с доставкой Air Freight или Refrigerated Air Freight (DeliveryMethodName).
 Вывести:
 * способ доставки (DeliveryMethodName) +
 * дата доставки+
 * имя поставщика+
 * имя контактного лица принимавшего заказ (ContactPerson)+
-Таблицы: Purchasing.Suppliers, Purchasing.PurchaseOrders   ExpectedDeliveryDate, Application.DeliveryMethods, Application.People.
+Таблицы: Purchasing.Suppliers, Purchasing.PurchaseOrders   ExpectedDeliveryDate, Application.DeliveryMethods, Application.People.*/
 
 select DeliveryMethodName, ExpectedDeliveryDate, SupplierName, FullName
-from Application.DeliveryMethods a inner join Purchasing.PurchaseOrders b on a.DeliveryMethodID=b.DeliveryMethodID 
-                                   inner join Purchasing.Suppliers c on c.SupplierID=b.SupplierID
-								   inner join Application.People d ON b.ContactPersonID = d.PersonID
-where (DeliveryMethodName='Air Freight' or DeliveryMethodName='Refrigerated Air Freight') and (b.ExpectedDeliveryDate between '2014-01-01' and '2014-01-31' )
+from Application.DeliveryMethods a 
+inner join Purchasing.PurchaseOrders b on a.DeliveryMethodID=b.DeliveryMethodID                                 
+inner join Purchasing.Suppliers c on c.SupplierID=b.SupplierID
+inner join Application.People d ON b.ContactPersonID = d.PersonID
+where 
+(DeliveryMethodName='Air Freight' or DeliveryMethodName='Refrigerated Air Freight') 
+and (b.ExpectedDeliveryDate between '2014-01-01' and '2014-01-31' )
 
 -----------------------------------Запрос №5---------------------------------------------
-Десять последних продаж (по дате)+
- с именем клиента +
-и именем сотрудника, который оформил заказ (SalespersonPerson).
-select  OrderDate, CustomerName,p.FullName
+/*Десять последних продаж (по дате)+с именем клиента +и именем сотрудника, который оформил заказ (SalespersonPerson). */
+select top(10) OrderDate, CustomerName,p.FullName
 from sales.Orders o join sales.Customers c on o.CustomerID=c.CustomerID
                     join Application.People p on o.ContactPersonID=p.PersonID
-                    
 order by OrderDate desc
- offset  0 rows
- fetch next 10 rows only  
+
 
 -----------------------------------Запрос №6-------------------------------------------------------------------------------------------------------------
- Все ид и имена клиентов и их контактные телефоны, которые покупали товар Chocolate frogs 250g. 
- Имя товара смотреть в Warehouse.StockItems.
-select   a.PersonID, a.FullName, a.PhoneNumber
-from   Application.People a join sales.Orders o on o.ContactPersonID=a.PersonID                           
-where exists (select * from  Application.People a join Warehouse.StockItems s on s.LastEditedBy=a.PersonID where  StockItemName='Chocolate frogs 250g' ) 
+/* Все ид и имена клиентов и их контактные телефоны, которые покупали товар Chocolate frogs 250g.
+Имя товара смотреть в Warehouse.StockItems.*/ 
+select SO.CustomerID, CustomerName, AP.PhoneNumber, AP.FaxNumber, StockItemName
+from Sales.Orders so
+join Sales.Customers sc on so.CustomerID = sc.CustomerID
+join Application.People AP on so.LastEditedBy = AP.PersonID
+join (select ws.StockItemID, ws.StockItemName,SOL.OrderID, SOL.PickedQuantity, SOL.UnitPrice
+      from Warehouse.StockItems ws
+      join Sales.OrderLines SOL on SOL.StockItemID = ws.StockItemID) as StockItems
+      on so.OrderID = StockItems.OrderID
+      where StockItemName = 'Chocolate frogs 250g'
 
