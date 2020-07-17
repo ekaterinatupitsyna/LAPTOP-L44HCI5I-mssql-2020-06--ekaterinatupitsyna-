@@ -1,0 +1,208 @@
+-------------------------------------------------запрос 1--------------------------------------------------------------
+/*1. Выберите сотрудников (Application.People), которые являются продажниками (IsSalesPerson),
+ и не сделали ни одной продажи 04 июля 2015 года. 
+Вывести ИД сотрудника и его полное имя. Продажи смотреть в таблице Sales.Invoices. */
+
+select p.PersonID, p.FullName 
+from Application.People p  
+where  exists (select * from Sales.Invoices i where p.PersonID=i.SalespersonPersonID and OrderID is null and IsSalesPerson=1 and i.InvoiceDate='2015-07-04')
+
+
+-------------------------------------------------запрос 2--------------------------------------------------------------
+/*2. Выберите товары с минимальной ценой (подзапросом). Сделайте два варианта подзапроса. Вывести: ИД товара, наименование товара, цена. */
+
+SELECT StockItemID, StockItemName, UnitPrice 
+FROM Warehouse.StockItems 
+WHERE UnitPrice in (select min(UnitPrice) from Warehouse.StockItems)
+
+SELECT StockItemID, StockItemName, UnitPrice 
+FROM Warehouse.StockItems 
+WHERE UnitPrice <= all (select UnitPrice from Warehouse.StockItems)
+
+-------------------------------------------------запрос 3  --------------------------------------------------------------
+/*3. Выберите информацию по клиентам, которые перевели компании пять максимальных платежей из Sales.CustomerTransactions.
+ Представьте несколько способов (в том числе с CTE). */
+
+select p.*
+from  Sales.CustomerTransactions c  left join Application.People p   on c.LastEditedBy= p.PersonID
+where TransactionAmount in (select top 5 TransactionAmount from Sales.CustomerTransactions order by TransactionAmount desc )
+
+;with  top5customer  as
+(
+  select top  5 TransactionAmount
+  from Sales.CustomerTransactions
+  order by  TransactionAmount desc
+) 
+select CustomerID, FullName, PersonID
+from Sales.CustomerTransactions c
+join Application.People P on c.LastEditedBy = P.PersonID
+where TransactionAmount in ( select * 
+              from top5customer)
+-------------------------------------------------запрос 4--------------------------------------------------------------
+/*4. Выберите города (ид и название), в которые были доставлены товары, входящие в тройку самых дорогих товаров,
+ а также имя сотрудника, который осуществлял упаковку заказов (PickedByPersonID). */
+
+SELECT p.FullName, c.CityID, c.CityName
+FROM Application.People p join Warehouse.PackageTypes p1 on p.PersonID=p1.LastEditedBy
+						  join Application.Cities c on p.PersonID=c.LastEditedBy
+						  join  Warehouse.StockItems s on p1.PackageTypeID=s.UnitPackageID
+						  join (select PickedByPersonID from Sales.Orders so 
+								join Application.People ap on so.PickedByPersonID=ap.PersonID) as pickedbypersonID on p.PersonID=pickedbypersonID.PickedByPersonID
+					
+where  UnitPrice  in (select top 3 UnitPrice from Warehouse.StockItems order by UnitPrice desc ) 
+
+/*Опционально: */
+-------------------------------------------------запрос 5--------------------------------------------------------------
+/*5. Объясните, что делает и оптимизируйте запрос: 
+Необходимо выбрать id счёта, дату составления счёта, имя продавца, который является продажником, оформляющим счета. 
+Также вывести общую сумму оформленного заказа, которая больше 27000, и общую цену упакованного товара при завершении комплектации заказа. 
+Информация выводится в порядке убывания общей суммы заказа.
+Необходимо выбрать id счёта, дату составления счёта, имя продавца, который является продажником, оформляющим счета. 
+Также вывести общую сумму оформленного заказа, которая больше 27000, и общую цену собранного товара при завершении комплектации заказа.
+Информация выводится в порядке убывания общей суммы заказа. */
+SELECT Invoices.InvoiceID, Invoices.InvoiceDate,
+	(SELECT People.FullName
+	FROM Application.People
+	WHERE People.PersonID = Invoices.SalespersonPersonID
+	) AS SalesPersonName,
+SalesTotals.TotalSumm AS TotalSummByInvoice, 
+(SELECT SUM(OrderLines.PickedQuantity*OrderLines.UnitPrice)
+FROM Sales.OrderLines
+WHERE OrderLines.OrderId = (SELECT Orders.OrderId 
+FROM Sales.Orders
+WHERE Orders.PickingCompletedWhen IS NOT NULL 
+AND Orders.OrderId = Invoices.OrderId) 
+) AS TotalSummForPickedItems
+FROM Sales.Invoices 
+JOIN (SELECT InvoiceId, SUM(Quantity*UnitPrice) AS TotalSumm
+	FROM Sales.InvoiceLines
+	GROUP BY InvoiceId
+	HAVING SUM(Quantity*UnitPrice) > 27000) AS SalesTotals
+	ON Invoices.InvoiceID = SalesTotals.InvoiceID
+ORDER BY TotalSumm DESC
+/*Можно двигаться как в сторону улучшения читабельности запроса, так и в сторону упрощения плана\ускорения. 
+Сравнить производительность запросов можно через SET STATISTICS IO, TIME ON. 
+Если знакомы с планами запросов, то используйте их (тогда к решению также приложите планы). Напишите ваши рассуждения по поводу оптимизации. */
+
+
+-------------------------------------------------запрос 6--------------------------------------------------------------
+/* В материалах к вебинару есть файл HT_reviewBigCTE.sql - прочтите этот запрос и напишите, что он должен вернуть и в чем его смысл. Если есть идеи по улучшению запроса, то напишите их.*/ 
+;WITH cteDeletedDF as
+(
+SELECT top (@DFBatchSize)
+		df.UserFileId,
+		@vfId as VirtualFolderId,
+		@vfOwnerId as OwnerId,
+		df.UserFileVersionId,
+		df.FileId,
+		df.[Length],
+		df.EffectiveDateRemovedUtc as lastDeleteDate,
+		@vfFolderId as FolderId
+ FROM dbo.vwUserFileInActive df with(nolock)
+  WHERE df.[FolderId] = @vfFolderId
+	AND df.EffectiveDateRemovedUtc < @maxDFKeepDate
+),
+
+cteDeletedDFMatchedRules
+as
+(
+SELECT ROW_NUMBER() over(partition by DF.UserFileId order by T.Priority) rn,
+		DATEADD(YEAR, -t.DeletedFileYears,
+				DATEADD(MONTH, -t.DeletedFileMonths,
+						DATEADD(DAY, -t.DeletedFileDays , @keepDeletedFromDate))) customRuleKeepDate,
+		T.DeletedFileDays as customDeletedDays,
+		T.DeletedFileMonths as customDeletedMonths,
+		T.DeletedFileYears as customDeletedYears,
+		T.CustomRuleId,
+		dDf.UserFileId,
+		dDF.FolderId as FolderId
+FROM cteDeletedDF dDF
+INNER JOIN dbo.UserFile DF with(nolock)
+	on dDF.FolderId = df.FolderId
+	 and dDF.UserFileId = Df.UserFileId
+LEFT JOIN dbo.UserFileExtension dfe with(nolock)
+	on df.[ExtensionId] = dfe.[ExtensionId]
+CROSS JOIN #companyCustomRules T
+WHERE
+  (
+	EXISTS
+		(
+		SELECT TOP 1
+				1 as id
+		 where T.RuleType = 0
+			and T.RuleCondition = 0
+			and T.RuleItemFileType = dfe.[FileTypeId]
+
+		 union all
+
+		SELECT TOP 1
+				1
+		 where T.RuleType = 0
+			and T.RuleCondition = 1
+			and T.RuleItemFileType <> dfe.[FileTypeId]
+
+		union all
+
+		SELECT TOP 1
+				1
+		 where T.RuleType = 1
+			and T.RuleCondition = 0
+			and DF.Name = T.RuleItemFileMask
+
+		union all
+
+		SELECT TOP 1
+				1
+		 where T.RuleType = 1
+			and T.RuleCondition = 4
+			and DF.Name like  case T.RuleCondition
+							  when 4
+							  then '%' + T.RuleItemFileMask + '%' --never will be indexed
+							  when 3
+							  then '%' + T.RuleItemFileMask --never will be indexed
+							  when 2
+							  then T.RuleItemFileMask + '%' --may be indexed
+							 end
+
+		union all
+
+		SELECT TOP 1
+				1
+		 where T.RuleType = 1
+			and T.RuleCondition = 5
+			and dbo.RegExMatch(DF.Name, T.RuleItemFileMask) = 1 --never will be indexed
+
+		union all
+
+		SELECT TOP 1
+				1
+		 where T.RuleType = 2
+			and T.RuleCondition = 6
+			and DF.[Length] > T.RuleItemFileSize
+
+		union all
+
+		SELECT TOP 1
+				1
+		 where T.RuleType = 2
+			and T.RuleCondition = 7
+			and DF.[Length] < T.RuleItemFileSize
+
+		union all
+
+		SELECT TOP 1
+				1
+		 where T.RuleType = 3
+			and T.RuleCondition = 0
+			and dDF.VirtualFolderId = T.RuleItemVirtualFolderId
+
+		union all
+
+		SELECT TOP 1
+				1
+		 where T.RuleType = 3
+			and T.RuleCondition = 8
+			and T.RuleItemVirtualFolderOwnerId = dDf.OwnerId
+		)
+  )
+)
